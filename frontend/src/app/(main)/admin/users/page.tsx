@@ -1,14 +1,14 @@
 /**
  * @project AncestorTree
  * @file src/app/(main)/admin/users/page.tsx
- * @description User management page — role + tree mapping (FR-507~509)
- * @version 3.0.0
- * @updated 2026-02-25
+ * @description User management page — role + tree mapping + bulk actions (FR-507~509)
+ * @version 4.0.0
+ * @updated 2026-03-02
  */
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   useProfiles,
   useUpdateUserRole,
@@ -62,6 +62,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Users,
   ArrowLeft,
@@ -77,6 +78,7 @@ import {
   Clock,
   Ban,
   Trash2,
+  CheckSquare,
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -336,6 +338,13 @@ export default function UsersPage() {
   const [suspendReason, setSuspendReason] = useState('');
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; user: Profile } | null>(null);
 
+  // Bulk selection state
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [bulkSuspendDialog, setBulkSuspendDialog] = useState(false);
+  const [bulkSuspendReason, setBulkSuspendReason] = useState('');
+  const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+
   const unverifiedCount = useMemo(
     () => (profiles ?? []).filter((p) => !p.is_verified).length,
     [profiles],
@@ -418,6 +427,88 @@ export default function UsersPage() {
     new Date(dateStr).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   const isSelf = (user: Profile) => user.user_id === currentProfile?.user_id;
+
+  // Selectable users = displayed profiles minus self
+  const selectableUsers = useMemo(
+    () => displayedProfiles.filter((u) => !isSelf(u)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [displayedProfiles, currentProfile],
+  );
+
+  const allSelected = selectableUsers.length > 0 && selectableUsers.every((u) => selectedUsers.has(u.user_id));
+  const someSelected = selectableUsers.some((u) => selectedUsers.has(u.user_id));
+
+  const toggleSelectAll = useCallback(() => {
+    if (allSelected) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set(selectableUsers.map((u) => u.user_id)));
+    }
+  }, [allSelected, selectableUsers]);
+
+  const toggleSelectUser = useCallback((userId: string) => {
+    setSelectedUsers((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, []);
+
+  // Get selected profile objects for display
+  const selectedProfiles = useMemo(
+    () => (profiles ?? []).filter((p) => selectedUsers.has(p.user_id)),
+    [profiles, selectedUsers],
+  );
+  const selectedUnverifiedCount = selectedProfiles.filter((p) => !p.is_verified).length;
+  const selectedActiveCount = selectedProfiles.filter((p) => !p.is_suspended).length;
+
+  // Bulk action handlers
+  const handleBulkVerify = async () => {
+    setBulkProcessing(true);
+    const targets = selectedProfiles.filter((p) => !p.is_verified);
+    const results = await Promise.allSettled(
+      targets.map((p) => verifyMutation.mutateAsync({ userId: p.user_id, verified: true })),
+    );
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (succeeded > 0) toast.success(`Đã duyệt ${succeeded} tài khoản`);
+    if (failed > 0) toast.error(`Lỗi khi duyệt ${failed} tài khoản`);
+    setSelectedUsers(new Set());
+    setBulkProcessing(false);
+  };
+
+  const handleBulkSuspend = async () => {
+    setBulkProcessing(true);
+    const targets = selectedProfiles.filter((p) => !p.is_suspended);
+    const results = await Promise.allSettled(
+      targets.map((p) =>
+        suspendMutation.mutateAsync({ userId: p.user_id, reason: bulkSuspendReason.trim() || undefined }),
+      ),
+    );
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (succeeded > 0) toast.success(`Đã khoá ${succeeded} tài khoản`);
+    if (failed > 0) toast.error(`Lỗi khi khoá ${failed} tài khoản`);
+    setSelectedUsers(new Set());
+    setBulkSuspendDialog(false);
+    setBulkSuspendReason('');
+    setBulkProcessing(false);
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkProcessing(true);
+    const results = await Promise.allSettled(
+      selectedProfiles.map((p) => deleteMutation.mutateAsync(p.user_id)),
+    );
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (succeeded > 0) toast.success(`Đã xoá ${succeeded} tài khoản`);
+    if (failed > 0) toast.error(`Lỗi khi xoá ${failed} tài khoản`);
+    setSelectedUsers(new Set());
+    setBulkDeleteDialog(false);
+    setBulkProcessing(false);
+  };
 
   return (
     <div className="container mx-auto p-4 space-y-6">
@@ -507,9 +598,17 @@ export default function UsersPage() {
               </Button>
             </div>
           ) : displayedProfiles.length > 0 ? (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Chọn tất cả"
+                    />
+                  </TableHead>
                   <TableHead>Người dùng</TableHead>
                   <TableHead className="hidden sm:table-cell">Email</TableHead>
                   <TableHead>Vai trò</TableHead>
@@ -521,7 +620,18 @@ export default function UsersPage() {
               </TableHeader>
               <TableBody>
                 {displayedProfiles.map((user) => (
-                  <TableRow key={user.id}>
+                  <TableRow key={user.id} className={selectedUsers.has(user.user_id) ? 'bg-accent/50' : ''}>
+                    <TableCell>
+                      {isSelf(user) ? (
+                        <div className="w-4" />
+                      ) : (
+                        <Checkbox
+                          checked={selectedUsers.has(user.user_id)}
+                          onCheckedChange={() => toggleSelectUser(user.user_id)}
+                          aria-label={`Chọn ${user.full_name || user.email}`}
+                        />
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-9 w-9">
@@ -589,6 +699,34 @@ export default function UsersPage() {
                     <TableCell className="hidden md:table-cell">{formatDate(user.created_at)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {/* Verify button — only for unverified users */}
+                        {!isSelf(user) && !user.is_verified && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2.5 text-green-600 border-green-200 hover:bg-green-50"
+                            onClick={async () => {
+                              try {
+                                await verifyMutation.mutateAsync({ userId: user.user_id, verified: true });
+                                toast.success(`Đã duyệt tài khoản ${user.full_name || user.email}`);
+                              } catch {
+                                toast.error('Lỗi khi duyệt tài khoản');
+                              }
+                            }}
+                            disabled={verifyMutation.isPending}
+                            title="Duyệt tài khoản"
+                          >
+                            {verifyMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <>
+                                <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                                Duyệt
+                              </>
+                            )}
+                          </Button>
+                        )}
+
                         {/* Tree mapping button */}
                         <Button
                           variant="outline"
@@ -687,6 +825,66 @@ export default function UsersPage() {
                 ))}
               </TableBody>
             </Table>
+
+            {/* Bulk action bar */}
+            {selectedUsers.size > 0 && (
+              <div className="sticky bottom-4 mt-4 mx-auto w-fit flex items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-lg">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <CheckSquare className="h-4 w-4 text-primary" />
+                  Đã chọn {selectedUsers.size} người dùng
+                </div>
+                <div className="h-5 w-px bg-border" />
+                {selectedUnverifiedCount > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-green-600 border-green-200 hover:bg-green-50"
+                    onClick={handleBulkVerify}
+                    disabled={bulkProcessing}
+                  >
+                    {bulkProcessing ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Duyệt ({selectedUnverifiedCount})
+                  </Button>
+                )}
+                {selectedActiveCount > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-amber-600 border-amber-200 hover:bg-amber-50"
+                    onClick={() => { setBulkSuspendReason(''); setBulkSuspendDialog(true); }}
+                    disabled={bulkProcessing}
+                  >
+                    <Ban className="h-3.5 w-3.5 mr-1.5" />
+                    Khoá ({selectedActiveCount})
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-destructive border-destructive/30 hover:bg-destructive/10"
+                  onClick={() => setBulkDeleteDialog(true)}
+                  disabled={bulkProcessing}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Xoá ({selectedUsers.size})
+                </Button>
+                <div className="h-5 w-px bg-border" />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8"
+                  onClick={() => setSelectedUsers(new Set())}
+                >
+                  <X className="h-3.5 w-3.5 mr-1" />
+                  Bỏ chọn
+                </Button>
+              </div>
+            )}
+            </>
           ) : (
             <div className="py-12 text-center text-muted-foreground">
               <Users className="h-12 w-12 mx-auto mb-4 opacity-30" />
@@ -816,6 +1014,101 @@ export default function UsersPage() {
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
                   Xoá tài khoản
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk suspend dialog */}
+      <AlertDialog
+        open={bulkSuspendDialog}
+        onOpenChange={(open) => { if (!open) { setBulkSuspendDialog(false); setBulkSuspendReason(''); } }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Ban className="h-5 w-5 text-amber-600" />
+              Khoá hàng loạt — {selectedActiveCount} tài khoản
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Các tài khoản sau sẽ bị khoá và không thể đăng nhập:
+              <span className="block mt-2 text-sm font-medium text-foreground max-h-24 overflow-y-auto">
+                {selectedProfiles.filter((p) => !p.is_suspended).map((p) => p.full_name || p.email).join(', ')}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="px-1 py-2">
+            <Label htmlFor="bulk-suspend-reason" className="text-sm font-medium">
+              Lý do khoá (tùy chọn)
+            </Label>
+            <Textarea
+              id="bulk-suspend-reason"
+              className="mt-1.5"
+              placeholder="Nhập lý do khoá tài khoản..."
+              value={bulkSuspendReason}
+              onChange={(e) => setBulkSuspendReason(e.target.value)}
+              rows={2}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkProcessing}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkSuspend}
+              disabled={bulkProcessing}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {bulkProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Đang xử lý...
+                </>
+              ) : (
+                <>
+                  <Ban className="h-4 w-4 mr-2" />
+                  Khoá {selectedActiveCount} tài khoản
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete dialog */}
+      <AlertDialog
+        open={bulkDeleteDialog}
+        onOpenChange={(open) => { if (!open) setBulkDeleteDialog(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Xoá hàng loạt — {selectedUsers.size} tài khoản
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Các tài khoản sau sẽ bị <strong>xoá vĩnh viễn</strong>. Hành động này không thể hoàn tác.
+              <span className="block mt-2 text-sm font-medium text-foreground max-h-24 overflow-y-auto">
+                {selectedProfiles.map((p) => p.full_name || p.email).join(', ')}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkProcessing}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              disabled={bulkProcessing}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {bulkProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Đang xoá...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Xoá {selectedUsers.size} tài khoản
                 </>
               )}
             </AlertDialogAction>
