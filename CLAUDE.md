@@ -2,8 +2,8 @@
 project: AncestorTree
 path: CLAUDE.md
 type: agent-guidelines
-version: 2.4.0
-updated: 2026-03-01
+version: 2.4.1
+updated: 2026-03-02
 ---
 
 # CLAUDE.md
@@ -15,7 +15,7 @@ This file provides guidance to AI assistants (Claude, GPT, etc.) when working wi
 **AncestorTree** (Gia Phả Điện Tử) is a digital family tree management system for Chi tộc Đặng Đình, Thạch Lâm, Hà Tĩnh.
 
 - **Repository:** https://github.com/Minh-Tam-Solution/AncestorTree
-- **Current Version:** v2.4.0 (Profile, MFA, Backup & Docker)
+- **Current Version:** v2.4.1 (Profile, MFA, Backup, Docker & Bulk Admin Actions)
 - **SDLC Tier:** LITE (5 stages)
 - **Tech Stack:** Next.js 16, React 19, Tailwind CSS 4, Supabase, Electron 34 (desktop)
 - **Built with:** [TinySDLC](https://github.com/Minh-Tam-Solution/tinysdlc) + [MTS-SDLC-Lite](https://github.com/Minh-Tam-Solution/MTS-SDLC-Lite)
@@ -103,7 +103,7 @@ AncestorTree/
 │   │           ├── documents/      # QL Tài liệu (Sprint 11)
 │   │           ├── fund/           # QL Quỹ & Học bổng (Sprint 6)
 │   │           ├── settings/       # Cài đặt dòng họ
-│   │           └── users/          # QL Người dùng (verify/suspend/delete)
+│   │           └── users/          # QL Người dùng (verify/suspend/delete + bulk actions)
 │   ├── src/components/             # React components
 │   │   ├── ui/                     # shadcn/ui components
 │   │   ├── auth/                   # Auth components (auth-provider, verification-guard)
@@ -312,6 +312,9 @@ chore/upgrade-deps
 | Clan Settings Data | `frontend/src/lib/supabase-data-clan-settings.ts` |
 | Docker Compose | `docker-compose.yml` |
 | Dockerfile | `frontend/Dockerfile` |
+| Admin Users (Bulk) | `frontend/src/app/(main)/admin/users/page.tsx` |
+| Local Setup Script | `frontend/scripts/local-setup.mjs` |
+| Sprint 13 Spec | `docs/04-build/SPRINT-13-SPEC.md` |
 
 ## Common Tasks
 
@@ -398,6 +401,21 @@ chore/upgrade-deps
 - Auto-backup schedule stored in localStorage (daily/weekly/monthly)
 - Desktop: inline media embedding; Web: reference-only
 - Restore validates column allowlist per table (SEC-CRIT-03)
+
+### Bulk Admin Actions
+
+- Admin page: `/admin/users` — checkbox selection + floating action bar
+- Bulk verify, suspend (with reason), delete with `Promise.allSettled` for resilience
+- Self-protection: current user cannot be selected for bulk actions
+- Suspend dialog requires reason input; delete dialog lists affected names
+- Selected rows highlighted with `bg-accent/50`; select-all with indeterminate state
+- Reuses single-user mutation hooks (`useVerifyUser`, `useSuspendUser`, `useDeleteUser`)
+
+### Local Setup Script
+
+- `frontend/scripts/local-setup.mjs` — cross-platform local dev setup
+- Supports Supabase CLI v2.76+ (box-drawing table format) and older versions (plain text)
+- `extractValue()` tries multiple key names: `API URL`/`Project URL`, `anon key`/`Publishable`, `service_role key`/`Secret`
 
 ## Secure Coding Standards (Updated 2026-02-27)
 

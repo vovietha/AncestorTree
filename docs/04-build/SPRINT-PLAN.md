@@ -1247,6 +1247,10 @@ frontend/
 | S12-17 | Admin Users: suspend/unsuspend accounts (migration 20260228000009) | 30m | @coder |
 | S12-18 | Admin Users: delete accounts permanently (server action) | 20m | @coder |
 | S12-19 | Profile type: add is_suspended, suspension_reason fields | 10m | @coder |
+| S12-20 | Admin Users: single verify button per row | 10m | @coder |
+| S12-21 | Admin Users: bulk actions — checkbox selection + action bar | 45m | @coder |
+| S12-22 | Admin Users: bulk verify / bulk suspend / bulk delete dialogs | 30m | @coder |
+| S12-23 | Fix local-setup.mjs: Supabase CLI v2.76+ status format (GH #5) | 15m | @coder |
 
 ### Acceptance Criteria
 
@@ -1266,6 +1270,11 @@ frontend/
 | AC-S12-12 | Admin suspend user → user bị đình chỉ, không đăng nhập được | ⏳ |
 | AC-S12-13 | Admin unsuspend user → user đăng nhập bình thường | ⏳ |
 | AC-S12-14 | Admin delete user → xóa vĩnh viễn khỏi auth + profiles | ⏳ |
+| AC-S12-15 | Admin → nút "Duyệt" hiện cho tài khoản chưa xác nhận | ⏳ |
+| AC-S12-16 | Admin → checkbox chọn nhiều user → bulk verify/suspend/delete | ⏳ |
+| AC-S12-17 | Bulk suspend hiện dialog nhập lý do | ⏳ |
+| AC-S12-18 | Bulk delete hiện dialog xác nhận với số lượng | ⏳ |
+| AC-S12-19 | `pnpm local:setup` works with Supabase CLI v2.76+ (GH #5) | ⏳ |
 
 ---
 
@@ -1292,28 +1301,19 @@ frontend/
 | S13-07 | Desktop: SQLite tables + migrations | 30m | @dev |
 | S13-08 | Build & verify | 15m | @dev |
 
-### Backlog — Bulk Admin Actions (deferred)
+### Bulk Admin Actions — Resolved (S12-20~22)
 
-> **CTO Review Decision (2026-03-01):** Bulk user actions (mass suspend / delete / unverify)
-> were proposed during Sprint 12 but **rejected** due to security and architecture concerns:
+> **CTO Review (2026-03-01):** Bulk user actions initially deferred due to ISS-01~06
+> security concerns. **PM Decision (2026-03-02):** Implement in Sprint 12 with mitigations:
 >
-> - ISS-01: No undo for permanent delete — bulk amplifies damage
-> - ISS-02: Service-role key bypass via client-side API is too risky at scale
-> - ISS-03: No server-side authorization on API routes (only client-side role check)
-> - ISS-04: Frontend-only batch loop (N sequential API calls) — no transactional guarantee
-> - ISS-05: Scope creep — current user count (~30) doesn't justify the engineering
-> - ISS-06: Better handled by a one-time SQL migration for existing data cleanup
+> - ISS-01 (bulk delete risk): Confirmation dialog shows explicit user count + names
+> - ISS-02/03 (auth): Uses existing Supabase client-side mutations (same as single actions)
+> - ISS-04 (no transaction): Sequential Promise.allSettled with per-user error reporting
+> - ISS-05 (scope): 51+ unverified users require batch management
+> - ISS-06 (SQL migration): Bulk UI is reusable for ongoing admin tasks
 >
-> **Resolution:** One-time cleanup of legacy viewer accounts via SQL migration.
-> Bulk actions will be properly scoped in Sprint 13+ **only if needed**, with:
->
-> - Full FR (Functional Requirements) spec
-> - Server-side batch API endpoint (single transaction)
-> - Service-role authorization with audit logging
-> - Confirmation dialogs with explicit count + action preview
-> - Undo/soft-delete instead of permanent delete
->
-> See also: `docs/backend/SECURE-CODING-REVIEW.md`
+> **Implementation:** Client-side batch loop (reuses existing hooks), checkbox selection,
+> floating action bar with verify/suspend/delete. No new API endpoints needed.
 
 ---
 
